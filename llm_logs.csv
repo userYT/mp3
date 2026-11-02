@@ -1,0 +1,181 @@
+---
+
+**User:**
+I'm working on MP3 for CS409 - it's a REST API for a task management app using Node.js, Express, and Mongoose. I've read through the README and I have a good understanding of what's needed. Basically I need to build CRUD endpoints for `users` and `tasks`, with query parameter support (where, sort, select, skip, limit, count) and two-way referencing between tasks and users.
+
+The tricky part is keeping `pendingTasks` on users and `assignedUser`/`assignedUserName` on tasks in sync. For example, when I PUT a user with a new `pendingTasks` list, I need to unassign tasks that were removed, assign tasks that were added, and handle tasks that are being reassigned from another user. Same idea for PUT on tasks - if `assignedUser` changes, I need to update both the old and new user's `pendingTasks`.
+
+The schemas are straightforward - User has name, email, pendingTasks, dateCreated, and Task has name, description, deadline, completed, assignedUser, assignedUserName, dateCreated. There's also validation: users need name+email (unique email), tasks need name+deadline, and various checks for valid ObjectIds, existing references, no completed tasks in pendingTasks, and assignedUserName matching the actual user's name.
+
+Can you write a plan for how to implement this? I want to make sure we handle all the edge cases before jumping into code.
+
+---
+
+**Assistant:**
+Here's the implementation plan:
+
+### Phase 1: Project Setup & Models
+
+1. **Task model** (`models/task.js`)
+   - Fields: name (required), description (default ""), deadline (required), completed (default false), assignedUser (default ""), assignedUserName (default "unassigned"), dateCreated (default Date.now)
+
+2. **User model** (`models/user.js`)
+   - Fields: name (required), email (required, unique), pendingTasks (default []), dateCreated (default Date.now)
+
+3. **server.js** - Uncomment the mongoose.connect line, wire up routes
+
+4. **routes/index.js** - Register user routes, task routes, and the existing home route
+
+### Phase 2: Basic CRUD (No Sync Logic Yet)
+
+5. **GET /api/users** and **GET /api/tasks**
+   - Build Mongoose query from query params: where, sort, select, skip, limit
+   - Tasks default limit = 100, users unlimited
+   - Handle `count=true` separately with `countDocuments()`
+   - Wrap JSON.parse in try/catch for 400 on malformed params
+
+6. **GET /api/users/:id** and **GET /api/tasks/:id**
+   - Validate ObjectId format first (404 if invalid)
+   - Support `select` param only, ignore others
+   - 404 if not found
+
+7. **POST /api/users** - Validate name+email, check email uniqueness
+8. **POST /api/tasks** - Validate name+deadline
+9. **PUT /api/users/:id** - Validate ObjectId, check existence (404), validate name+email, check email uniqueness excluding self
+10. **PUT /api/tasks/:id** - Validate ObjectId, check existence (404), validate name+deadline
+11. **DELETE /api/users/:id** and **DELETE /api/tasks/:id** - Validate ObjectId, 404 if not found
+
+### Phase 3: Two-Way Reference Sync
+
+This is the core complexity. The validation order matters: URL id check (404) -> field format/values (400) -> referenced resources exist (404).
+
+12. **POST /api/users with pendingTasks**
+    - Validate each task id format (400)
+    - Verify all tasks exist (404) and none are completed (400)
+    - After creating user: update each task's assignedUser/assignedUserName
+    - If a task was assigned to another user, remove it from that user's pendingTasks
+
+13. **POST /api/tasks with assignedUser**
+    - Validate assignedUser id format (400)
+    - Verify user exists (404)
+    - Validate assignedUserName matches user.name if provided (400)
+    - After creating: if not completed, add task to user's pendingTasks
+
+14. **PUT /api/users/:id** (full sync)
+    - Compute diff between old and new pendingTasks
+    - Tasks in old but not new: unassign (assignedUser="", assignedUserName="unassigned")
+    - Tasks in new but not old: assign to this user, remove from previous user if reassigned
+    - If name changed: update assignedUserName on ALL tasks assigned to this user
+
+15. **PUT /api/tasks/:id** (full sync)
+    - If assignedUser changed: remove task from old user's pendingTasks
+    - If assigned and not completed: add to new user's pendingTasks
+    - If completed: remove from user's pendingTasks (but stay assigned)
+    - Setting completed back to false on assigned task: re-add to pendingTasks
+
+16. **DELETE /api/tasks/:id** - Remove from assigned user's pendingTasks
+17. **DELETE /api/users/:id** - Unassign ALL tasks (including completed) belonging to this user
+
+### Phase 4: Response Format & Status Codes
+- All responses: `{ message: "...", data: ... }`
+- 200 (success), 201 (created), 400 (bad request), 404 (not found), 500 (server error)
+- Error messages should be human-readable, not raw Mongoose errors
+
+Want me to start coding?
+
+---
+
+**User:**
+This plan looks good. Go ahead and start coding. A few things I want you to keep in mind:
+
+1. Please use `var` and traditional function syntax instead of `let`/`const`/arrow functions - I want to keep the style consistent with the starter code in server.js
+2. Use promise chains (`.then()/.catch()`) instead of async/await for the same reason
+3. Make sure error messages don't leak any Mongoose internals - the README specifically says this
+4. For the DELETE endpoints, return 200 with the deleted document, not 204
+
+---
+
+**Assistant:**
+Got it. I'll stick with `var`, traditional functions, and `.then()/.catch()` chains to match the existing style. I'll make sure all error messages are generic and human-readable, and DELETE will return 200 with the deleted document.
+
+Let me start with the models and work through the plan.
+
+*[Created models/task.js with the Task schema]*
+
+*[Updated models/user.js with the User schema]*
+
+*[Updated routes/index.js to register users and tasks routes]*
+
+*[Created routes/users.js with full CRUD + query params + two-way sync]*
+
+*[Created routes/tasks.js with full CRUD + query params + two-way sync]*
+
+*[Updated server.js - uncommented mongoose.connect]*
+
+All endpoints are implemented with:
+- Consistent `var` + function + promise chain style
+- Query parameter support (where, sort, select, skip, limit, count)
+- Validation in the correct order: URL id -> field format -> referenced resources
+- Two-way reference sync for all create/update/delete operations
+- Generic error messages (no Mongoose internals leaked)
+- Proper status codes (200, 201, 400, 404, 500)
+
+---
+
+**User:**
+One more thing - in the task PUT handler, when the request body has `completed` set explicitly to `false`, the line `var newCompleted = req.body.completed || false` would work, but can you double check the logic handles the case where completed is explicitly sent as `false` vs not sent at all? Since PUT replaces the whole task, both should default to false, so it's fine here, but I want to make sure.
+
+---
+
+**Assistant:**
+You're right to double-check. Since PUT replaces the entire resource, a missing `completed` field should default to `false`, which is exactly what `req.body.completed || false` does:
+
+- `completed: true` -> `true`
+- `completed: false` -> `false` (falsy, so `|| false` gives `false`)
+- `completed` not sent -> `undefined || false` -> `false`
+
+All three cases produce the correct result here, so the logic is sound. The same pattern applies to `assignedUser || ''` and `assignedUserName || 'unassigned'` - missing fields get their defaults, which is the correct PUT behavior per the spec.
+
+---
+
+**User:**
+Looks good, thanks. Can you also make sure the count query for tasks respects the `where` parameter? I want `GET /api/tasks?where={"completed":true}&count=true` to return just the count of completed tasks, not all tasks.
+
+---
+
+**Assistant:**
+Already handled. In both `routes/tasks.js` and `routes/users.js`, when `count=true`, I create a separate `countDocuments()` query and apply the `where` parameter to it:
+
+```javascript
+if (req.query.count === 'true') {
+    var countQuery = Task.countDocuments();
+    try {
+        if (req.query.where) countQuery.where(JSON.parse(req.query.where));
+    } catch (err) {
+        return res.status(400).json({ message: 'Invalid query parameter', data: {} });
+    }
+    countQuery.then(function (count) {
+        return res.status(200).json({ message: 'OK', data: count });
+    }).catch(function (err) {
+        return res.status(500).json({ message: 'Server error', data: {} });
+    });
+}
+```
+
+So `GET /api/tasks?where={"completed":true}&count=true` will correctly return only the count of completed tasks.
+
+---
+
+**User:**
+Great. One last question - for the email uniqueness check on PUT, are you checking against all users or excluding the current user? Because if a user PUTs with the same email they already have, that shouldn't be an error.
+
+---
+
+**Assistant:**
+I'm excluding the current user from the uniqueness check. Here's the relevant line in the PUT handler:
+
+```javascript
+User.findOne({ email: req.body.email, _id: { $ne: user._id } })
+```
+
+The `$ne` (not equal) operator ensures we only flag a duplicate if a *different* user has that email. So updating a user with their existing email works fine, and it only returns 400 if another user already has the requested email.
