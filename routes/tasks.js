@@ -233,10 +233,10 @@ module.exports = function (router) {
                 return User.findByIdAndUpdate(task.assignedUser, {
                     $pull: { pendingTasks: task._id.toString() }
                 }).then(function () {
-                    return res.status(200).json({ message: 'Task deleted', data: task });
+                    return res.status(204).send();
                 });
             }
-            return res.status(200).json({ message: 'Task deleted', data: task });
+            return res.status(204).send();
         }).catch(function (err) {
             return res.status(500).json({ message: 'Server error', data: {} });
         });

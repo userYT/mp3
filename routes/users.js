@@ -273,7 +273,7 @@ module.exports = function (router) {
                 { assignedUser: user._id.toString() },
                 { assignedUser: '', assignedUserName: 'unassigned' }
             ).then(function () {
-                return res.status(200).json({ message: 'User deleted', data: user });
+                return res.status(204).send();
             });
         }).catch(function (err) {
             return res.status(500).json({ message: 'Server error', data: {} });
