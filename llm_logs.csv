@@ -91,7 +91,7 @@ This plan looks good. Go ahead and start coding. A few things I want you to keep
 1. Please use `var` and traditional function syntax instead of `let`/`const`/arrow functions - I want to keep the style consistent with the starter code in server.js
 2. Use promise chains (`.then()/.catch()`) instead of async/await for the same reason
 3. Make sure error messages don't leak any Mongoose internals - the README specifically says this
-4. For the DELETE endpoints, return 200 with the deleted document, not 204
+4. For the DELETE endpoints, return 204
 
 ---
 
